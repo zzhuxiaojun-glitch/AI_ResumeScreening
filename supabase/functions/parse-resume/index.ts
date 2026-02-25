@@ -92,7 +92,7 @@ Deno.serve(async (req: Request) => {
       throw new Error("Position not found");
     }
 
-    const score = calculateScore(extracted, position);
+    const score = calculateScore(extracted, position, rawText);
 
     await supabase.from("scores").insert({
       candidate_id: candidate.id,
@@ -237,9 +237,9 @@ function extractInformation(text: string): any {
   };
 }
 
-function calculateScore(candidate: any, position: any): any {
-  let mustScore = 0;
-  let niceScore = 0;
+function calculateScore(candidate: any, position: any, rawText: string): any {
+  let mustScoreRaw = 0;
+  let niceScoreRaw = 0;
   let rejectPenalty = 0;
 
   const matchedMust: string[] = [];
@@ -248,34 +248,38 @@ function calculateScore(candidate: any, position: any): any {
   const matchedReject: string[] = [];
 
   const candidateSkillsLower = candidate.skills.map((s: string) => s.toLowerCase());
-  const rawTextLower = candidate.raw_text?.toLowerCase() || "";
+  const rawTextLower = rawText.toLowerCase();
 
-  let totalMustWeight = 0;
+  // Calculate max possible scores
+  let maxMustScore = 0;
   for (const mustSkill of position.must_skills) {
-    totalMustWeight += mustSkill.weight;
+    maxMustScore += mustSkill.weight * 10;
     const skillLower = mustSkill.skill.toLowerCase();
     if (
       candidateSkillsLower.includes(skillLower) ||
       rawTextLower.includes(skillLower)
     ) {
-      mustScore += mustSkill.weight * 10;
+      mustScoreRaw += mustSkill.weight * 10;
       matchedMust.push(mustSkill.skill);
     } else {
       missingMust.push(mustSkill.skill);
     }
   }
 
+  let maxNiceScore = 0;
   for (const niceSkill of position.nice_skills) {
+    maxNiceScore += niceSkill.weight * 5;
     const skillLower = niceSkill.skill.toLowerCase();
     if (
       candidateSkillsLower.includes(skillLower) ||
       rawTextLower.includes(skillLower)
     ) {
-      niceScore += niceSkill.weight * 5;
+      niceScoreRaw += niceSkill.weight * 5;
       matchedNice.push(niceSkill.skill);
     }
   }
 
+  // Check reject keywords in full raw text
   for (const keyword of position.reject_keywords) {
     const keywordLower = keyword.toLowerCase();
     if (rawTextLower.includes(keywordLower)) {
@@ -284,7 +288,17 @@ function calculateScore(candidate: any, position: any): any {
     }
   }
 
-  const totalScore = Math.max(0, Math.min(100, mustScore + niceScore - rejectPenalty));
+  // Normalize to 0-100 scale
+  const maxPossibleScore = maxMustScore + maxNiceScore;
+  let normalizedScore = 0;
+
+  if (maxPossibleScore > 0) {
+    const rawScore = mustScoreRaw + niceScoreRaw;
+    normalizedScore = (rawScore / maxPossibleScore) * 100;
+  }
+
+  // Apply reject penalty after normalization
+  const totalScore = Math.max(0, Math.min(100, normalizedScore - rejectPenalty));
 
   let grade = "D";
   const thresholds = position.grade_thresholds;
@@ -296,24 +310,52 @@ function calculateScore(candidate: any, position: any): any {
     grade = "C";
   }
 
+  // Build detailed explanation
+  const matchedMustDetails = matchedMust.length > 0
+    ? `已匹配: ${matchedMust.join(", ")}`
+    : "无";
+  const missingMustDetails = missingMust.length > 0
+    ? `缺失: ${missingMust.join(", ")}`
+    : "无";
+  const matchedNiceDetails = matchedNice.length > 0
+    ? `已匹配: ${matchedNice.join(", ")}`
+    : "无";
+  const rejectDetails = matchedReject.length > 0
+    ? `发现拒绝关键词: ${matchedReject.join(", ")}`
+    : "无拒绝关键词";
+
   const explanation = `
-Score Breakdown:
-- Must-have skills: ${mustScore} points (matched ${matchedMust.length}/${position.must_skills.length})
-- Nice-to-have skills: ${niceScore} points (matched ${matchedNice.length}/${position.nice_skills.length})
-- Reject penalty: -${rejectPenalty} points (found ${matchedReject.length} reject keywords)
+评分详情：
 
-Total Score: ${totalScore.toFixed(1)} / 100
-Grade: ${grade}
+1. 必备技能 (最高 ${maxMustScore} 分，获得 ${mustScoreRaw.toFixed(1)} 分)
+   - ${matchedMustDetails}
+   - ${missingMustDetails}
+   - 匹配度: ${matchedMust.length}/${position.must_skills.length}
 
-${missingMust.length > 0 ? `Missing critical skills: ${missingMust.join(", ")}` : ""}
-${matchedReject.length > 0 ? `Warning: Found reject keywords: ${matchedReject.join(", ")}` : ""}
+2. 加分技能 (最高 ${maxNiceScore} 分，获得 ${niceScoreRaw.toFixed(1)} 分)
+   - ${matchedNiceDetails}
+   - 匹配度: ${matchedNice.length}/${position.nice_skills.length}
+
+3. 拒绝关键词检查
+   - ${rejectDetails}
+   - 扣分: -${rejectPenalty} 分
+
+评分计算：
+- 原始得分: ${(mustScoreRaw + niceScoreRaw).toFixed(1)} / ${maxPossibleScore} 分
+- 归一化得分: ${normalizedScore.toFixed(1)} / 100
+- 扣除拒绝惩罚: ${normalizedScore.toFixed(1)} - ${rejectPenalty} = ${totalScore.toFixed(1)}
+- 最终得分: ${totalScore.toFixed(1)} / 100
+- 评级: ${grade}
+
+${missingMust.length > 0 ? `\n⚠️ 缺少关键技能: ${missingMust.join(", ")}` : ""}
+${matchedReject.length > 0 ? `\n⚠️ 警告: 简历中包含拒绝关键词: ${matchedReject.join(", ")}` : ""}
 `.trim();
 
   return {
-    total_score: totalScore,
+    total_score: parseFloat(totalScore.toFixed(1)),
     grade,
-    must_score: mustScore,
-    nice_score: niceScore,
+    must_score: parseFloat(mustScoreRaw.toFixed(1)),
+    nice_score: parseFloat(niceScoreRaw.toFixed(1)),
     reject_penalty: rejectPenalty,
     scoring_details: {
       matched_must_count: matchedMust.length,
@@ -321,6 +363,10 @@ ${matchedReject.length > 0 ? `Warning: Found reject keywords: ${matchedReject.jo
       matched_nice_count: matchedNice.length,
       total_nice_count: position.nice_skills.length,
       reject_count: matchedReject.length,
+      max_must_score: maxMustScore,
+      max_nice_score: maxNiceScore,
+      max_possible_score: maxPossibleScore,
+      normalized_score: parseFloat(normalizedScore.toFixed(1)),
     },
     explanation,
     matched_must: matchedMust,
