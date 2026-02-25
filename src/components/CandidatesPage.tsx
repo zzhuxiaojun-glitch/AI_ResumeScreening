@@ -1,11 +1,19 @@
 import { useState, useEffect } from 'react';
-import { supabase, Candidate, Score, Position } from '../lib/supabase';
-import { Search, Download, Eye } from 'lucide-react';
+import { supabase, Candidate, CandidateStatus, Score, Position } from '../lib/supabase';
+import { Search, Download, Eye, RefreshCw } from 'lucide-react';
 
 interface CandidateWithScore extends Candidate {
   score?: Score;
   position?: Position;
 }
+
+const STATUS_OPTIONS: { value: CandidateStatus; label: string }[] = [
+  { value: 'new', label: 'New' },
+  { value: 'shortlisted', label: 'Shortlisted' },
+  { value: 'interviewing', label: 'Interviewing' },
+  { value: 'hired', label: 'Hired' },
+  { value: 'rejected', label: 'Rejected' },
+];
 
 export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) => void }) {
   const [candidates, setCandidates] = useState<CandidateWithScore[]>([]);
@@ -74,6 +82,26 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
     }
   };
 
+  const handleStatusChange = async (candidateId: string, newStatus: CandidateStatus) => {
+    try {
+      const { error } = await supabase
+        .from('candidates')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', candidateId);
+
+      if (error) throw error;
+
+      setCandidates(
+        candidates.map((c) =>
+          c.id === candidateId ? { ...c, status: newStatus } : c
+        )
+      );
+    } catch (error) {
+      console.error('Error updating status:', error);
+      alert('Failed to update status');
+    }
+  };
+
   const handleExportCSV = () => {
     const filtered = getFilteredCandidates();
 
@@ -89,6 +117,7 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
       'Score',
       'Grade',
       'Status',
+      'Resubmissions',
       'Skills',
       'Created At',
     ];
@@ -104,7 +133,8 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
       c.work_years,
       c.score?.total_score || 0,
       c.score?.grade || 'N/A',
-      c.current_status,
+      c.status,
+      c.resubmission_count,
       c.skills.join('; '),
       new Date(c.created_at).toLocaleDateString(),
     ]);
@@ -136,7 +166,7 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
     }
 
     if (statusFilter) {
-      filtered = filtered.filter((c) => c.current_status === statusFilter);
+      filtered = filtered.filter((c) => c.status === statusFilter);
     }
 
     if (positionFilter) {
@@ -175,14 +205,14 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
     switch (status) {
       case 'new':
         return 'bg-slate-100 text-slate-700';
-      case 'reviewed':
+      case 'shortlisted':
         return 'bg-blue-100 text-blue-700';
-      case 'interview':
+      case 'interviewing':
         return 'bg-purple-100 text-purple-700';
-      case 'rejected':
-        return 'bg-red-100 text-red-700';
       case 'hired':
         return 'bg-green-100 text-green-700';
+      case 'rejected':
+        return 'bg-red-100 text-red-700';
       default:
         return 'bg-slate-100 text-slate-700';
     }
@@ -251,11 +281,11 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
             className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Status</option>
-            <option value="new">New</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="interview">Interview</option>
-            <option value="rejected">Rejected</option>
-            <option value="hired">Hired</option>
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -285,7 +315,7 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <div className="flex items-center space-x-3 mb-2">
+                <div className="flex items-center space-x-3 mb-2 flex-wrap gap-y-2">
                   <h3 className="text-lg font-semibold text-slate-800">
                     {candidate.name || 'Unknown'}
                   </h3>
@@ -296,13 +326,26 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
                   >
                     Grade {candidate.score?.grade || 'N/A'}
                   </span>
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                      candidate.current_status
+                  <select
+                    value={candidate.status}
+                    onChange={(e) => handleStatusChange(candidate.id, e.target.value as CandidateStatus)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border-0 focus:ring-2 focus:ring-blue-500 cursor-pointer ${getStatusColor(
+                      candidate.status
                     )}`}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {candidate.current_status}
-                  </span>
+                    {STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {candidate.resubmission_count > 0 && (
+                    <span className="inline-flex items-center px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded-full">
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      Resubmitted {candidate.resubmission_count}x
+                    </span>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-slate-600">

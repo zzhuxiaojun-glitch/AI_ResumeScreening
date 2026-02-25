@@ -53,10 +53,23 @@ export interface Candidate {
   risks: string[];
   missing_fields: string[];
   raw_text: string;
-  current_status: string;
+  status: string;
   notes: string;
+  resubmission_count: number;
+  first_submitted_at: string;
+  last_resubmitted_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type CandidateStatus = 'new' | 'shortlisted' | 'interviewing' | 'hired' | 'rejected';
+
+export interface CandidateResubmission {
+  id: string;
+  candidate_id: string;
+  resume_id: string;
+  position_id: string;
+  resubmitted_at: string;
 }
 
 export interface Score {

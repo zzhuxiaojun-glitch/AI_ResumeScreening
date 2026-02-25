@@ -55,31 +55,78 @@ Deno.serve(async (req: Request) => {
 
     const extracted = extractInformation(rawText);
 
-    const { data: candidate, error: candidateError } = await supabase
-      .from("candidates")
-      .insert({
-        resume_id: resume.id,
-        position_id: resume.position_id,
-        name: extracted.name,
-        phone: extracted.phone,
-        email: extracted.email,
-        education: extracted.education,
-        school: extracted.school,
-        major: extracted.major,
-        graduation_date: extracted.graduation_date,
-        work_years: extracted.work_years,
-        skills: extracted.skills,
-        projects: extracted.projects,
-        highlights: extracted.highlights,
-        risks: extracted.risks,
-        missing_fields: extracted.missing_fields,
-        raw_text: rawText,
-      })
-      .select()
-      .single();
+    const { data: existingCandidate } = await supabase.rpc(
+      "find_duplicate_candidate",
+      {
+        p_email: extracted.email,
+        p_phone: extracted.phone,
+        p_position_id: resume.position_id,
+      }
+    );
 
-    if (candidateError) {
-      throw new Error(`Failed to create candidate: ${candidateError.message}`);
+    let candidateId: string;
+    let isResubmission = false;
+
+    if (existingCandidate) {
+      candidateId = existingCandidate;
+      isResubmission = true;
+
+      await supabase.rpc("handle_candidate_resubmission", {
+        p_candidate_id: candidateId,
+        p_new_resume_id: resume.id,
+        p_position_id: resume.position_id,
+      });
+
+      await supabase
+        .from("candidates")
+        .update({
+          name: extracted.name || undefined,
+          phone: extracted.phone || undefined,
+          email: extracted.email || undefined,
+          education: extracted.education || undefined,
+          school: extracted.school || undefined,
+          major: extracted.major || undefined,
+          graduation_date: extracted.graduation_date || undefined,
+          work_years: extracted.work_years,
+          skills: extracted.skills,
+          projects: extracted.projects,
+          highlights: extracted.highlights,
+          risks: extracted.risks,
+          missing_fields: extracted.missing_fields,
+          raw_text: rawText,
+        })
+        .eq("id", candidateId);
+    } else {
+      const { data: candidate, error: candidateError } = await supabase
+        .from("candidates")
+        .insert({
+          resume_id: resume.id,
+          position_id: resume.position_id,
+          name: extracted.name,
+          phone: extracted.phone,
+          email: extracted.email,
+          education: extracted.education,
+          school: extracted.school,
+          major: extracted.major,
+          graduation_date: extracted.graduation_date,
+          work_years: extracted.work_years,
+          skills: extracted.skills,
+          projects: extracted.projects,
+          highlights: extracted.highlights,
+          risks: extracted.risks,
+          missing_fields: extracted.missing_fields,
+          raw_text: rawText,
+          status: "new",
+          resubmission_count: 0,
+        })
+        .select()
+        .single();
+
+      if (candidateError) {
+        throw new Error(`Failed to create candidate: ${candidateError.message}`);
+      }
+
+      candidateId = candidate.id;
     }
 
     const { data: position, error: positionError } = await supabase
@@ -94,8 +141,15 @@ Deno.serve(async (req: Request) => {
 
     const score = calculateScore(extracted, position, rawText);
 
+    if (isResubmission) {
+      await supabase
+        .from("scores")
+        .delete()
+        .eq("candidate_id", candidateId);
+    }
+
     await supabase.from("scores").insert({
-      candidate_id: candidate.id,
+      candidate_id: candidateId,
       total_score: score.total_score,
       grade: score.grade,
       must_score: score.must_score,
@@ -115,7 +169,11 @@ Deno.serve(async (req: Request) => {
       .eq("id", resume_id);
 
     return new Response(
-      JSON.stringify({ success: true, candidate_id: candidate.id }),
+      JSON.stringify({
+        success: true,
+        candidate_id: candidateId,
+        is_resubmission: isResubmission,
+      }),
       {
         headers: {
           ...corsHeaders,
@@ -250,7 +308,6 @@ function calculateScore(candidate: any, position: any, rawText: string): any {
   const candidateSkillsLower = candidate.skills.map((s: string) => s.toLowerCase());
   const rawTextLower = rawText.toLowerCase();
 
-  // Calculate max possible scores
   let maxMustScore = 0;
   for (const mustSkill of position.must_skills) {
     maxMustScore += mustSkill.weight * 10;
@@ -279,7 +336,6 @@ function calculateScore(candidate: any, position: any, rawText: string): any {
     }
   }
 
-  // Check reject keywords in full raw text
   for (const keyword of position.reject_keywords) {
     const keywordLower = keyword.toLowerCase();
     if (rawTextLower.includes(keywordLower)) {
@@ -288,7 +344,6 @@ function calculateScore(candidate: any, position: any, rawText: string): any {
     }
   }
 
-  // Normalize to 0-100 scale
   const maxPossibleScore = maxMustScore + maxNiceScore;
   let normalizedScore = 0;
 
@@ -297,7 +352,6 @@ function calculateScore(candidate: any, position: any, rawText: string): any {
     normalizedScore = (rawScore / maxPossibleScore) * 100;
   }
 
-  // Apply reject penalty after normalization
   const totalScore = Math.max(0, Math.min(100, normalizedScore - rejectPenalty));
 
   let grade = "D";
@@ -310,7 +364,6 @@ function calculateScore(candidate: any, position: any, rawText: string): any {
     grade = "C";
   }
 
-  // Build detailed explanation
   const matchedMustDetails = matchedMust.length > 0
     ? `已匹配: ${matchedMust.join(", ")}`
     : "无";
