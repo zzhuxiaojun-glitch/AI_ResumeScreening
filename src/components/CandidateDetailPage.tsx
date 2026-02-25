@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase, Candidate, Score, Position, Resume } from '../lib/supabase';
 import { ArrowLeft, Download, Save, AlertCircle, CheckCircle, TrendingUp, TrendingDown } from 'lucide-react';
 

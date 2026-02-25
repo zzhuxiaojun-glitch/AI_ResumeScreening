@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase, Candidate, Score, Position } from '../lib/supabase';
-import { Search, Download, Eye, Filter } from 'lucide-react';
+import { Search, Download, Eye } from 'lucide-react';
 
 interface CandidateWithScore extends Candidate {
   score?: Score;
@@ -26,7 +26,7 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
     try {
       const { data, error } = await supabase
         .from('positions')
-        .select('id, title')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
