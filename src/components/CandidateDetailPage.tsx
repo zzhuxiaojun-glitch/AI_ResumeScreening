@@ -206,6 +206,16 @@ export function CandidateDetailPage({ candidateId, onBack }: CandidateDetailProp
                 <p className="font-medium text-slate-800">{candidate.phone || 'N/A'}</p>
               </div>
               <div>
+                <span className="text-slate-500">Age:</span>
+                <p className="font-medium text-slate-800">{candidate.age || 'N/A'}</p>
+              </div>
+              <div>
+                <span className="text-slate-500">Gender:</span>
+                <p className="font-medium text-slate-800">
+                  {candidate.gender && candidate.gender !== 'unknown' ? candidate.gender : 'N/A'}
+                </p>
+              </div>
+              <div>
                 <span className="text-slate-500">Education:</span>
                 <p className="font-medium text-slate-800">{candidate.education || 'N/A'}</p>
               </div>

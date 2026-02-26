@@ -46,6 +46,8 @@ export interface Candidate {
   school: string;
   major: string;
   graduation_date: string | null;
+  age: number | null;
+  gender: string;
   work_years: number;
   skills: string[];
   projects: string[];

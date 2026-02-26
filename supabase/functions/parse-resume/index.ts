@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { ExtractorFactory } from "./extractor-factory.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -107,7 +108,62 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const extracted = extractInformation(rawText);
+    // Use pluggable extractor system for structured data extraction
+    const extractor = ExtractorFactory.getExtractor();
+    console.log(`Using extractor: ${extractor.name} v${extractor.version}`);
+
+    const extractionResult = await extractor.extract(rawText);
+
+    if (!extractionResult.success) {
+      console.warn("Structured extraction had issues:", extractionResult.errors);
+    }
+
+    if (extractionResult.warnings && extractionResult.warnings.length > 0) {
+      console.warn("Extraction warnings:", extractionResult.warnings);
+    }
+
+    const extracted = extractionResult.data;
+
+    // Update extraction metadata with structured extraction info
+    extractionMetadata.structured = {
+      success: extractionResult.success,
+      confidence: extracted.extraction_confidence,
+      method: extracted.extraction_method,
+      warnings: extractionResult.warnings,
+      errors: extractionResult.errors,
+    };
+
+    // Calculate highlights and risks based on extracted data
+    const highlights: string[] = [];
+    if (extracted.education && (extracted.education.includes("硕士") || extracted.education.includes("博士"))) {
+      highlights.push(`High education: ${extracted.education}`);
+    }
+    if (extracted.work_years && extracted.work_years >= 5) {
+      highlights.push(`Rich experience: ${extracted.work_years} years`);
+    }
+    if (extracted.skills && extracted.skills.length >= 5) {
+      highlights.push(`Strong technical skills: ${extracted.skills.length} skills`);
+    }
+
+    const risks: string[] = [];
+    if (!extracted.email || !extracted.phone) {
+      risks.push("Missing contact information");
+    }
+    if (!extracted.work_years || extracted.work_years === 0) {
+      risks.push("No work experience mentioned");
+    }
+    if (!extracted.skills || extracted.skills.length < 3) {
+      risks.push("Limited technical skills");
+    }
+
+    const missing_fields: string[] = [];
+    if (!extracted.name) missing_fields.push("name");
+    if (!extracted.email) missing_fields.push("email");
+    if (!extracted.phone) missing_fields.push("phone");
+    if (!extracted.education) missing_fields.push("education");
+    if (!extracted.school) missing_fields.push("school");
+    if (!extracted.age) missing_fields.push("age");
+    if (extracted.gender === "unknown") missing_fields.push("gender");
 
     const { data: existingCandidate } = await supabase.rpc(
       "find_duplicate_candidate",
@@ -141,12 +197,14 @@ Deno.serve(async (req: Request) => {
           school: extracted.school || undefined,
           major: extracted.major || undefined,
           graduation_date: extracted.graduation_date || undefined,
-          work_years: extracted.work_years,
-          skills: extracted.skills,
-          projects: extracted.projects,
-          highlights: extracted.highlights,
-          risks: extracted.risks,
-          missing_fields: extracted.missing_fields,
+          age: extracted.age || undefined,
+          gender: extracted.gender || undefined,
+          work_years: extracted.work_years || 0,
+          skills: extracted.skills || [],
+          projects: extracted.projects || [],
+          highlights: highlights.slice(0, 3),
+          risks: risks.slice(0, 3),
+          missing_fields: missing_fields,
           raw_text: rawText,
           extraction_status: extractionStatus,
           extraction_metadata: extractionMetadata,
@@ -159,19 +217,21 @@ Deno.serve(async (req: Request) => {
         .insert({
           resume_id: resume.id,
           position_id: resume.position_id,
-          name: extracted.name,
-          phone: extracted.phone,
-          email: extracted.email,
-          education: extracted.education,
-          school: extracted.school,
-          major: extracted.major,
-          graduation_date: extracted.graduation_date,
-          work_years: extracted.work_years,
-          skills: extracted.skills,
-          projects: extracted.projects,
-          highlights: extracted.highlights,
-          risks: extracted.risks,
-          missing_fields: extracted.missing_fields,
+          name: extracted.name || "",
+          phone: extracted.phone || "",
+          email: extracted.email || "",
+          education: extracted.education || "",
+          school: extracted.school || "",
+          major: extracted.major || "",
+          graduation_date: extracted.graduation_date || null,
+          age: extracted.age || null,
+          gender: extracted.gender || "unknown",
+          work_years: extracted.work_years || 0,
+          skills: extracted.skills || [],
+          projects: extracted.projects || [],
+          highlights: highlights.slice(0, 3),
+          risks: risks.slice(0, 3),
+          missing_fields: missing_fields,
           raw_text: rawText,
           extraction_status: extractionStatus,
           extraction_metadata: extractionMetadata,
@@ -255,105 +315,6 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
-
-function extractInformation(text: string): any {
-  const lowerText = text.toLowerCase();
-
-  const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
-  const email = emailMatch ? emailMatch[0] : "";
-
-  const phoneMatch = text.match(/1[3-9]\d{9}|(\+86)?[\s-]?1[3-9]\d{9}/);
-  const phone = phoneMatch ? phoneMatch[0].replace(/[\s-]/g, "") : "";
-
-  const nameMatch = text.match(/姓名[：:]\s*([^\n\r]{2,10})/);
-  const name = nameMatch ? nameMatch[1].trim() : "";
-
-  const educationKeywords = ["博士", "硕士", "本科", "学士", "大专"];
-  let education = "";
-  for (const keyword of educationKeywords) {
-    if (lowerText.includes(keyword)) {
-      education = keyword;
-      break;
-    }
-  }
-
-  const schoolMatch = text.match(/([^\n]{2,15})(大学|学院|University|College)/i);
-  const school = schoolMatch ? schoolMatch[0].trim() : "";
-
-  const majorMatch = text.match(/专业[：:]\s*([^\n\r]{2,20})/);
-  const major = majorMatch ? majorMatch[1].trim() : "";
-
-  const yearMatch = text.match(/(\d{4})[年\-\.](\d{1,2})/);
-  const graduation_date = yearMatch ? `${yearMatch[1]}-${yearMatch[2].padStart(2, "0")}-01` : null;
-
-  const workYearMatch = text.match(/(\d+)\s*(年|年以上|年工作经验)/);
-  const work_years = workYearMatch ? parseInt(workYearMatch[1]) : 0;
-
-  const skillKeywords = [
-    "React", "Vue", "Angular", "JavaScript", "TypeScript", "Node.js", "Python",
-    "Java", "Go", "Rust", "Docker", "Kubernetes", "AWS", "Azure", "GCP",
-    "SQL", "MongoDB", "Redis", "Git", "CI/CD", "Linux", "REST", "GraphQL",
-    "Express", "FastAPI", "Django", "Spring", "MySQL", "PostgreSQL",
-  ];
-
-  const skills: string[] = [];
-  for (const skill of skillKeywords) {
-    if (new RegExp(skill, "i").test(text)) {
-      skills.push(skill);
-    }
-  }
-
-  const projects: string[] = [];
-  const projectMatches = text.matchAll(/项目[：:]\s*([^\n\r]{10,100})/g);
-  for (const match of projectMatches) {
-    projects.push(match[1].trim());
-  }
-
-  const highlights: string[] = [];
-  if (education.includes("硕士") || education.includes("博士")) {
-    highlights.push(`High education: ${education}`);
-  }
-  if (work_years >= 5) {
-    highlights.push(`Rich experience: ${work_years} years`);
-  }
-  if (skills.length >= 5) {
-    highlights.push(`Strong technical skills: ${skills.length} skills`);
-  }
-
-  const risks: string[] = [];
-  if (!email || !phone) {
-    risks.push("Missing contact information");
-  }
-  if (work_years === 0) {
-    risks.push("No work experience mentioned");
-  }
-  if (skills.length < 3) {
-    risks.push("Limited technical skills");
-  }
-
-  const missing_fields: string[] = [];
-  if (!name) missing_fields.push("name");
-  if (!email) missing_fields.push("email");
-  if (!phone) missing_fields.push("phone");
-  if (!education) missing_fields.push("education");
-  if (!school) missing_fields.push("school");
-
-  return {
-    name,
-    email,
-    phone,
-    education,
-    school,
-    major,
-    graduation_date,
-    work_years,
-    skills,
-    projects,
-    highlights: highlights.slice(0, 3),
-    risks: risks.slice(0, 3),
-    missing_fields,
-  };
-}
 
 function calculateScore(candidate: any, position: any, rawText: string): any {
   let mustScoreRaw = 0;

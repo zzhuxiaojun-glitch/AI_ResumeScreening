@@ -363,6 +363,16 @@ export function CandidatesPage({ onViewDetail }: { onViewDetail: (id: string) =>
                     <span className="font-medium">Education:</span> {candidate.education || 'N/A'}
                   </div>
                   <div>
+                    <span className="font-medium">School:</span> {candidate.school || 'N/A'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Age:</span> {candidate.age || 'N/A'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Gender:</span>{' '}
+                    {candidate.gender && candidate.gender !== 'unknown' ? candidate.gender : 'N/A'}
+                  </div>
+                  <div>
                     <span className="font-medium">Experience:</span>{' '}
                     {candidate.work_years ? `${candidate.work_years} years` : 'N/A'}
                   </div>
