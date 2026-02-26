@@ -53,6 +53,9 @@ export interface Candidate {
   risks: string[];
   missing_fields: string[];
   raw_text: string;
+  extraction_status: string;
+  extraction_metadata: Record<string, any>;
+  raw_text_source: string;
   status: string;
   notes: string;
   resubmission_count: number;

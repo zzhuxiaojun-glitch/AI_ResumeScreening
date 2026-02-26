@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase, Candidate, Score, Position, Resume } from '../lib/supabase';
-import { ArrowLeft, Download, Save, AlertCircle, CheckCircle, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowLeft, Download, Save, AlertCircle, CheckCircle, TrendingUp, TrendingDown, FileText, Copy, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface CandidateDetailProps {
   candidateId: string;
@@ -16,6 +16,7 @@ export function CandidateDetailPage({ candidateId, onBack }: CandidateDetailProp
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showRawText, setShowRawText] = useState(false);
 
   useEffect(() => {
     loadCandidateDetail();
@@ -138,6 +139,28 @@ export function CandidateDetailPage({ candidateId, onBack }: CandidateDetailProp
         return 'bg-red-100 text-red-800 border-red-300';
       default:
         return 'bg-slate-100 text-slate-800 border-slate-300';
+    }
+  };
+
+  const getExtractionStatusBadge = (status: string) => {
+    switch (status) {
+      case 'success':
+        return 'bg-green-100 text-green-800 border-green-300';
+      case 'needs_review':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'failed':
+        return 'bg-red-100 text-red-800 border-red-300';
+      case 'pending':
+        return 'bg-slate-100 text-slate-800 border-slate-300';
+      default:
+        return 'bg-slate-100 text-slate-800 border-slate-300';
+    }
+  };
+
+  const copyToClipboard = async () => {
+    if (candidate?.raw_text) {
+      await navigator.clipboard.writeText(candidate.raw_text);
+      alert('Copied to clipboard');
     }
   };
 
@@ -370,6 +393,85 @@ export function CandidateDetailPage({ candidateId, onBack }: CandidateDetailProp
               </ul>
             </div>
           )}
+
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <FileText className="w-5 h-5 text-slate-600 mr-2" />
+                <h3 className="text-lg font-semibold text-slate-800">Extracted Text</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {candidate.extraction_status && (
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-medium border ${getExtractionStatusBadge(
+                      candidate.extraction_status
+                    )}`}
+                  >
+                    {candidate.extraction_status}
+                  </span>
+                )}
+                <button
+                  onClick={() => setShowRawText(!showRawText)}
+                  className="text-slate-600 hover:text-slate-800"
+                >
+                  {showRawText ? (
+                    <ChevronUp className="w-5 h-5" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {candidate.extraction_metadata && (
+              <div className="flex gap-4 text-xs text-slate-600 mb-3">
+                <span>Pages: {candidate.extraction_metadata.pages || 'N/A'}</span>
+                <span>Characters: {candidate.extraction_metadata.chars || 0}</span>
+                {candidate.raw_text_source && (
+                  <span>Source: {candidate.raw_text_source}</span>
+                )}
+              </div>
+            )}
+
+            {candidate.extraction_metadata?.hint && (
+              <div
+                className={`mb-3 p-3 rounded-lg text-sm ${
+                  candidate.extraction_status === 'needs_review'
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : candidate.extraction_status === 'failed'
+                    ? 'bg-red-50 text-red-800 border border-red-200'
+                    : 'bg-blue-50 text-blue-800 border border-blue-200'
+                }`}
+              >
+                {candidate.extraction_metadata.hint}
+              </div>
+            )}
+
+            {showRawText && (
+              <>
+                {candidate.raw_text ? (
+                  <>
+                    <div className="flex justify-end mb-2">
+                      <button
+                        onClick={copyToClipboard}
+                        className="flex items-center text-sm text-slate-600 hover:text-slate-800"
+                      >
+                        <Copy className="w-4 h-4 mr-1" />
+                        Copy
+                      </button>
+                    </div>
+                    <div className="max-h-96 overflow-y-auto p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <pre className="text-xs text-slate-700 whitespace-pre-wrap font-mono">
+                        {candidate.raw_text}
+                      </pre>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500 italic">No text extracted</p>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         <div className="space-y-6">

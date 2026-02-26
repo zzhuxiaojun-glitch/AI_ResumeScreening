@@ -44,13 +44,67 @@ Deno.serve(async (req: Request) => {
       throw new Error(`File download failed: ${fileError.message}`);
     }
 
+    // Extract text using Python PDF extraction service
     let rawText = "";
+    let extractionStatus = "pending";
+    let extractionMetadata: any = {};
+    let rawTextSource = "pymupdf";
+
     try {
-      const arrayBuffer = await fileData.arrayBuffer();
-      const text = new TextDecoder().decode(arrayBuffer);
-      rawText = text;
-    } catch (e) {
-      rawText = "Failed to extract text from file";
+      const pdfExtractorUrl = Deno.env.get("PDF_EXTRACTOR_URL") || "http://localhost:5000";
+
+      // Create FormData with the PDF file
+      const formData = new FormData();
+      formData.append("file", fileData, "resume.pdf");
+
+      // Call PDF extraction service
+      const extractResponse = await fetch(`${pdfExtractorUrl}/extract-text`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!extractResponse.ok) {
+        throw new Error(`PDF extraction service returned ${extractResponse.status}`);
+      }
+
+      const extractResult = await extractResponse.json();
+
+      rawText = extractResult.text || "";
+      extractionStatus = extractResult.status || "failed";
+      extractionMetadata = {
+        pages: extractResult.pages || 0,
+        chars: extractResult.chars || 0,
+        hint: extractResult.hint || "",
+        extracted_at: new Date().toISOString(),
+      };
+
+      console.log(`PDF extraction: status=${extractionStatus}, pages=${extractResult.pages}, chars=${extractResult.chars}`);
+    } catch (e: any) {
+      console.error("PDF extraction service error:", e.message);
+
+      // Fallback: try basic text decode as backup
+      try {
+        const arrayBuffer = await fileData.arrayBuffer();
+        const text = new TextDecoder().decode(arrayBuffer);
+        rawText = text;
+        extractionStatus = "needs_review";
+        extractionMetadata = {
+          pages: 0,
+          chars: text.length,
+          hint: "Extracted using fallback method - may not be accurate",
+          extracted_at: new Date().toISOString(),
+        };
+        rawTextSource = "fallback";
+      } catch (fallbackError) {
+        rawText = "";
+        extractionStatus = "failed";
+        extractionMetadata = {
+          pages: 0,
+          chars: 0,
+          hint: `Extraction failed: ${e.message}`,
+          extracted_at: new Date().toISOString(),
+        };
+      }
     }
 
     const extracted = extractInformation(rawText);
@@ -94,6 +148,9 @@ Deno.serve(async (req: Request) => {
           risks: extracted.risks,
           missing_fields: extracted.missing_fields,
           raw_text: rawText,
+          extraction_status: extractionStatus,
+          extraction_metadata: extractionMetadata,
+          raw_text_source: rawTextSource,
         })
         .eq("id", candidateId);
     } else {
@@ -116,6 +173,9 @@ Deno.serve(async (req: Request) => {
           risks: extracted.risks,
           missing_fields: extracted.missing_fields,
           raw_text: rawText,
+          extraction_status: extractionStatus,
+          extraction_metadata: extractionMetadata,
+          raw_text_source: rawTextSource,
           status: "new",
           resubmission_count: 0,
         })

@@ -7,21 +7,48 @@ A full-featured AI-powered resume screening and candidate management system buil
 ### Core Functionality
 - **Position Management**: Create and manage job positions with customizable scoring rules
 - **Resume Upload**: Batch upload resumes (PDF, DOC, DOCX) with automatic parsing
+- **PDF Text Extraction**: Python-powered text extraction using PyMuPDF for accurate parsing
 - **Email Import**: Configure IMAP email to automatically import resumes from your inbox
 - **AI Parsing**: Automatic extraction of candidate information (name, contact, education, skills, etc.)
 - **Smart Scoring**: Rule-based scoring with must-have/nice-to-have skills and reject keywords
 - **Grade System**: Automatic A/B/C/D grading based on customizable thresholds
 - **Candidate Management**: Filter, search, and manage candidates with detailed views
+- **Extraction Status Tracking**: Visual indicators for extraction success/review needs
+- **Raw Text View**: Collapsible view of extracted text with copy functionality
 - **CSV Export**: Export filtered candidate lists to CSV for further analysis
 
 ### Tech Stack
 - **Frontend**: React 18 + TypeScript + Tailwind CSS
 - **Backend**: Supabase (PostgreSQL + Edge Functions)
+- **PDF Extraction**: Python + PyMuPDF (Flask microservice)
 - **Authentication**: Supabase Auth (Email/Password)
 - **Storage**: Supabase Storage for resume files
 - **Icons**: Lucide React
 
 ## Quick Start
+
+### Automated Startup (Recommended)
+
+For the easiest setup, use the startup script that starts all services:
+
+**Linux/Mac:**
+```bash
+./START_SERVICES.sh
+```
+
+**Windows:**
+```bash
+START_SERVICES.bat
+```
+
+This will automatically:
+1. Start the PDF extraction service (Python)
+2. Start the web application (Node.js)
+3. Open the application in your browser
+
+### Manual Setup
+
+If you prefer to start services individually:
 
 ### 1. Installation
 
@@ -33,16 +60,36 @@ npm install
 
 Your `.env` file is already configured with Supabase credentials.
 
-### 3. Database Setup
+### 3. Start PDF Extraction Service
+
+```bash
+cd pdf-extractor
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
+
+The service will start on `http://localhost:5000`
+
+### 4. Start Web Application
+
+In a new terminal:
+```bash
+npm run dev
+```
+
+### 5. Database Setup
 
 The database schema has been automatically created with the following tables:
 - `positions` - Job positions and scoring rules
 - `resumes` - Uploaded resume files metadata
-- `candidates` - Parsed candidate information
+- `candidates` - Parsed candidate information with PDF extraction data
 - `scores` - Candidate scoring results
 - `email_configs` - Email import configurations
+- `candidate_resubmissions` - Resubmission tracking
 
-### 4. Authentication Setup
+### 6. Authentication Setup
 
 **First-time users need to create an account:**
 
@@ -53,9 +100,26 @@ The database schema has been automatically created with the following tables:
 5. Click "Sign Up"
 6. You'll be automatically logged in
 
-### 5. Run the Application
+### 7. Run the Application
 
 The development server is already running. Access it at the URL shown in your terminal.
+
+## PDF Text Extraction
+
+The system uses a Python microservice to extract text from PDF resumes. See [PDF_EXTRACTION_SETUP.md](./PDF_EXTRACTION_SETUP.md) for:
+- Architecture overview
+- Detailed setup instructions
+- Configuration options
+- Troubleshooting guide
+- Deployment options
+
+### Key Features
+- Fast text extraction using PyMuPDF
+- Automatic detection of scanned PDFs
+- Status tracking (`success`, `needs_review`, `failed`)
+- Extraction metadata (pages, characters, hints)
+- Collapsible raw text view in UI
+- Copy to clipboard functionality
 
 ## Usage Guide
 
